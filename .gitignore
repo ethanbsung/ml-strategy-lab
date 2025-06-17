@@ -1,4 +1,8 @@
-venv/
+# Conda environments
+.conda/
+envs/
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
@@ -8,3 +12,11 @@ __pycache__/
 *.pywz
 *.pyzw
 *.pyzwz
+
+data/
+outputs/
+*.png
+*.db
+
+.DS_Store
+.vscode/
