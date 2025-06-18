@@ -17,6 +17,8 @@ data/
 outputs/
 *.png
 *.db
+lake/
+
 
 .DS_Store
 .vscode/
