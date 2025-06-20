@@ -1,6 +1,6 @@
 # ML Strategy Lab
 
-A machine learning-based trading strategy development project for futures markets.
+A machine learning-based trading strategy development project for futures and crypto markets.
 
 ## Directory Structure
 
