@@ -86,7 +86,7 @@ def download_and_convert_binance_monthly(symbol='BTCUSDT', start_year=2017, end_
 
 # 🔧 Run it
 download_and_convert_binance_monthly(
-    symbol='BTCUSDT',
+    symbol='ETHUSDT',
     start_year=2017,
     base_dir='data'
 )
