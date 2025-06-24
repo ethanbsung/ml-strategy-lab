@@ -58,7 +58,20 @@ def download_and_convert_binance_monthly(symbol='BTCUSDT', start_year=2017, end_
                                         'quote_qty': 'float64', 'timestamp': 'int64',
                                         'is_buyer_maker': 'bool', 'is_best_match': 'bool'})
 
-                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+                # 🔧 FIX: Convert timestamps from microseconds to datetime
+                # Binance timestamps are in microseconds, so divide by 1,000,000 to get seconds
+                try:
+                    df['timestamp'] = pd.to_datetime(df['timestamp'] / 1000000, unit='s')
+                except Exception as ts_error:
+                    print(f"⚠️ Timestamp conversion error for {filename}: {ts_error}")
+                    # Fallback: try treating as milliseconds (for older data)
+                    try:
+                        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+                        print(f"✅ Fallback to milliseconds worked for {filename}")
+                    except Exception as fallback_error:
+                        print(f"❌ Both timestamp conversions failed for {filename}: {fallback_error}")
+                        continue
+                
                 table = pa.Table.from_pandas(df)
                 pq.write_table(table, parquet_path, compression='zstd')
 
