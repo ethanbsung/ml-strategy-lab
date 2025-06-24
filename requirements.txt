@@ -11,3 +11,16 @@ scikit-learn>=1.3.0
 matplotlib>=3.7.0
 seaborn>=0.12.0
 joblib>=1.3.0
+
+# Deep Learning & Walk-Forward Backtesting
+tensorflow>=2.15.0
+keras>=3.0.0
+# ta-lib>=0.4.0  # Will implement manually
+# TA-Lib>=0.4.0
+# talib-binary>=0.4.19
+# pandas-ta>=0.3.14b0  # Removed due to numpy compatibility issues
+typer>=0.9.0
+rich>=13.0.0
+plotly>=5.0.0
+numba>=0.58.0
+tqdm>=4.65.0
