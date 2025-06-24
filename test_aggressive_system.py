@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test New Aggressive, Parameter-Rich ML System
+Test New Aggressive, Parameter-Rich ML System (Optimized for Large Datasets)
 Shows actual out-of-sample performance with much more trading activity
 """
 
@@ -8,6 +8,9 @@ import pandas as pd
 import numpy as np
 import warnings
 warnings.filterwarnings('ignore')
+import gc
+import psutil
+import os
 
 from sklearn.metrics import accuracy_score, precision_score, recall_score, classification_report
 
@@ -16,6 +19,13 @@ from features.engineer import engineer_features
 from labels.triple_barrier import create_triple_barrier_labels, align_labels_with_features, create_sequences_for_lstm
 from models.cnn_lstm import CNNLSTMModel
 from models.random_forest import RandomForestModel
+
+def print_memory_usage():
+    """Print current memory usage"""
+    process = psutil.Process(os.getpid())
+    memory_info = process.memory_info()
+    memory_mb = memory_info.rss / 1024 / 1024
+    print(f"💾 Memory usage: {memory_mb:.1f} MB")
 
 def calculate_comprehensive_metrics(returns, positions, strategy_name="Strategy"):
     """Calculate comprehensive trading performance metrics"""
@@ -83,11 +93,141 @@ def calculate_comprehensive_metrics(returns, positions, strategy_name="Strategy"
         'calmar_ratio': (cumulative_return / abs(max_drawdown)) if max_drawdown != 0 else 0
     }
 
-def run_aggressive_backtest():
-    """Run comprehensive test of the aggressive system"""
+def load_and_sample_data(max_samples=500000):
+    """Load and sample data efficiently to avoid memory issues"""
+    import glob
     
-    print("🚀 TESTING NEW AGGRESSIVE, PARAMETER-RICH ML SYSTEM")
-    print("=" * 60)
+    # Get ALL dollar bar files
+    data_pattern = "data/BTCUSDT/dollar_bars_1M/BTCUSDT-trades-*_dollar_bars.parquet"
+    files = sorted(glob.glob(data_pattern))
+    
+    if not files:
+        print("❌ No dollar bar files found!")
+        return None
+    
+    print(f"📊 Found {len(files)} files from {os.path.basename(files[0])} to {os.path.basename(files[-1])}")
+    
+    # For testing, use recent 12 months for better memory management
+    if len(files) > 12:
+        files = files[-12:]
+        print(f"📊 Limited to most recent 12 months for memory efficiency: {len(files)} files")
+    
+    # Load data in chunks and sample if too large
+    dfs = []
+    total_rows = 0
+    
+    for file in files:
+        try:
+            df = pd.read_parquet(file)
+            total_rows += len(df)
+            dfs.append(df)
+            print(f"✓ Loaded {file}: {len(df):,} bars (Total: {total_rows:,})")
+            
+            # Early break if we have enough data
+            if total_rows > max_samples * 1.5:  # Leave room for sampling
+                print(f"📊 Stopping early - have {total_rows:,} bars (target: {max_samples:,})")
+                break
+                
+        except FileNotFoundError:
+            print(f"⚠️ File not found: {file}")
+    
+    if not dfs:
+        print("❌ No data files found!")
+        return None
+    
+    df = pd.concat(dfs, ignore_index=True)
+    df = df.sort_values('bar_start_time').reset_index(drop=True)
+    
+    # Sample data if too large
+    if len(df) > max_samples:
+        print(f"📊 Sampling {max_samples:,} from {len(df):,} bars for memory efficiency...")
+        # Take recent data + random sample to maintain time series properties
+        recent_split = int(max_samples * 0.7)  # 70% recent data
+        sample_split = max_samples - recent_split  # 30% sampled from rest
+        
+        # Recent data
+        recent_data = df.iloc[-recent_split:].copy()
+        
+        # Sampled historical data
+        historical_data = df.iloc[:-recent_split]
+        if len(historical_data) > sample_split:
+            sampled_indices = np.sort(np.random.choice(len(historical_data), sample_split, replace=False))
+            sampled_data = historical_data.iloc[sampled_indices].copy()
+        else:
+            sampled_data = historical_data.copy()
+        
+        # Combine and sort
+        df = pd.concat([sampled_data, recent_data], ignore_index=True)
+        df = df.sort_values('bar_start_time').reset_index(drop=True)
+        print(f"📊 Final dataset: {len(df):,} bars")
+    
+    print(f"📅 Period: {df['bar_start_time'].min()} to {df['bar_start_time'].max()}")
+    print_memory_usage()
+    
+    return df
+
+def engineer_features_efficiently(df):
+    """Engineer features with memory management"""
+    print("\n🔧 Engineering features efficiently...")
+    print_memory_usage()
+    
+    # Import feature engineering functions directly
+    from features.engineer import calculate_returns, calculate_technical_indicators, calculate_microstructure_features
+    
+    print("Calculating returns...")
+    df = calculate_returns(df)
+    gc.collect()  # Force garbage collection
+    
+    print("Calculating technical indicators...")
+    df = calculate_technical_indicators(df)
+    gc.collect()
+    
+    print("Calculating microstructure features...")
+    df = calculate_microstructure_features(df)
+    gc.collect()
+    
+    print_memory_usage()
+    return df
+
+def create_labels_efficiently(df, chunk_size=100000):
+    """Create labels in chunks to manage memory"""
+    print(f"\n🏷️ Creating labels efficiently (chunk size: {chunk_size:,})...")
+    print_memory_usage()
+    
+    total_samples = len(df)
+    all_labels = []
+    
+    for start_idx in range(0, total_samples, chunk_size):
+        end_idx = min(start_idx + chunk_size, total_samples)
+        chunk_df = df.iloc[start_idx:end_idx].copy()
+        
+        print(f"Processing chunk {start_idx:,} to {end_idx:,} ({len(chunk_df):,} bars)")
+        
+        # Create labels for this chunk
+        labels_chunk = create_triple_barrier_labels(chunk_df)
+        all_labels.append(labels_chunk)
+        
+        # Clean up
+        del chunk_df
+        gc.collect()
+        print_memory_usage()
+    
+    # Combine all labels
+    print("Combining label chunks...")
+    labels_df = pd.concat(all_labels, ignore_index=False)
+    
+    # Clean up
+    del all_labels
+    gc.collect()
+    print_memory_usage()
+    
+    return labels_df
+
+def run_aggressive_backtest():
+    """Run comprehensive test of the aggressive system with memory optimization"""
+    
+    print("🚀 TESTING NEW AGGRESSIVE, PARAMETER-RICH ML SYSTEM (OPTIMIZED)")
+    print("=" * 70)
     print(f"🎯 Profit Target: {config.PROFIT_TGT:.1%}")
     print(f"🛑 Stop Target: {config.STOP_TGT:.1%}")
     print(f"⏱️  Timeout: {config.TIMEOUT} bars")
@@ -96,69 +236,20 @@ def run_aggressive_backtest():
     print(f"🔄 Window: {config.WINDOW:,} bars")
     print(f"🔄 Step: {config.STEP:,} bars")
     
-    # Load and prepare data - USE ALL AVAILABLE DATA (2017-2021)
-    print("\n📂 Loading ALL available data (2017-2021)...")
+    print_memory_usage()
     
-    import glob
-    import os
+    # Load and prepare data efficiently
+    print("\n📂 Loading data efficiently...")
+    df = load_and_sample_data(max_samples=500000)  # Limit to 500K samples for memory
     
-    # Get ALL dollar bar files
-    data_pattern = "data/BTCUSDT/dollar_bars_1M/BTCUSDT-trades-*_dollar_bars.parquet"
-    files = sorted(glob.glob(data_pattern))
-    
-    if not files:
-        print("❌ No dollar bar files found!")
+    if df is None:
         return
     
-    print(f"📊 Found {len(files)} files from {os.path.basename(files[0])} to {os.path.basename(files[-1])}")
+    # Engineer features efficiently
+    df = engineer_features_efficiently(df)
     
-    # Use ALL available data for maximum training effectiveness
-    # This includes multiple market cycles: bear (2018), recovery (2019), crash/bull (2020-2021)
-    print(f"🚀 Using ALL {len(files)} files for maximum parameter richness!")
-    
-    # Limit to reasonable size for testing (last 2 years for performance)
-    if len(files) > 24:  # If more than 24 months, take recent 24
-        files = files[-24:]
-        print(f"📊 Limited to most recent 24 months for performance: {len(files)} files")
-    
-    dfs = []
-    for file in files:
-        try:
-            df = pd.read_parquet(file)
-            dfs.append(df)
-            print(f"✓ Loaded {file}: {len(df):,} bars")
-        except FileNotFoundError:
-            print(f"⚠️ File not found: {file}")
-    
-    if not dfs:
-        print("❌ No data files found!")
-        return
-    
-    df = pd.concat(dfs, ignore_index=True)
-    df = df.sort_values('bar_start_time').reset_index(drop=True)
-    
-    print(f"📊 Total data: {len(df):,} bars")
-    print(f"📅 Period: {df['bar_start_time'].min()} to {df['bar_start_time'].max()}")
-    
-    # Engineer comprehensive features directly on the DataFrame
-    print("\n🔧 Engineering comprehensive features...")
-    
-    # Import feature engineering functions directly
-    from features.engineer import calculate_returns, calculate_technical_indicators, calculate_microstructure_features
-    
-    print("Calculating returns...")
-    df = calculate_returns(df)
-    
-    print("Calculating technical indicators...")
-    df = calculate_technical_indicators(df)
-    
-    print("Calculating microstructure features...")
-    df = calculate_microstructure_features(df)
-    
-    # Keep price columns for label creation, but separate feature columns
+    # Select feature columns (excluding price/volume basics)
     price_cols = ['bar_start_time', 'bar_end_time', 'open', 'high', 'low', 'close']
-    
-    # Select ALL available features for maximum complexity (excluding basic price/volume data)
     feature_cols = [col for col in df.columns if col not in [
         'bar_start_time', 'bar_end_time', 'open', 'high', 'low', 'close', 'volume', 
         'dollar_volume', 'trade_count', 'vwap', 'buyer_initiated_volume', 
@@ -168,27 +259,34 @@ def run_aggressive_backtest():
     print(f"✓ Available feature columns: {len(feature_cols)}")
     print(f"✓ Sample features: {feature_cols[:10]}")
     
-    # Keep full dataframe for label creation, but create feature matrix separately
+    # Clean data
     df_clean = df.dropna()
-    features_df = df_clean  # Keep all columns including 'close' for label creation
+    print(f"✓ Clean dataset: {df_clean.shape[1]} total columns, {len(df_clean):,} rows")
+    print_memory_usage()
     
-    print(f"✓ Clean dataset: {features_df.shape[1]} total columns, {len(features_df):,} rows")
-    
-    # Create labels with new targets
-    print(f"\n🏷️ Creating labels (Profit: {config.PROFIT_TGT:.1%}, Stop: {config.STOP_TGT:.1%})...")
-    labels_df = create_triple_barrier_labels(features_df)
+    # Create labels efficiently
+    labels_df = create_labels_efficiently(df_clean)
     print(f"✓ Labels created: {len(labels_df):,} samples")
     
-    # Align features and labels - use only the feature columns for X
-    X_aligned, y_aligned = align_labels_with_features(features_df[feature_cols], labels_df)
+    # Align features and labels
+    print("\n🔗 Aligning features and labels...")
+    X_aligned, y_aligned = align_labels_with_features(df_clean[feature_cols], labels_df)
     print(f"✓ Aligned data: {len(X_aligned):,} samples with {len(feature_cols)} features")
+    print_memory_usage()
+    
+    # Clean up large dataframes
+    del df, df_clean, labels_df
+    gc.collect()
+    print_memory_usage()
     
     # Create sequences for LSTM
+    print("\n🔄 Creating LSTM sequences...")
     X_sequences, y_sequences, seq_indices = create_sequences_for_lstm(X_aligned, y_aligned, config.LOOKBACK)
     print(f"✓ LSTM sequences: {len(X_sequences):,} sequences")
+    print_memory_usage()
     
-    # Split data - aggressive strategy: use more data for training complex models
-    split_point = int(len(X_aligned) * 0.8)  # 80% train, 20% test (more training data for complex models)
+    # Split data - use 80% for training
+    split_point = int(len(X_aligned) * 0.8)
     
     # Training data
     X_train_seq = X_sequences[:split_point]
@@ -205,15 +303,18 @@ def run_aggressive_backtest():
     
     print(f"\n📚 Training: {len(X_train_seq):,} sequences")
     print(f"🧪 Testing: {len(X_test_seq):,} sequences")
+    print_memory_usage()
     
-    # Train models with much more data and complexity
-    print(f"\n🤖 Training CNN-LSTM (MUCH more complex) on {len(X_train_seq):,} sequences...")
+    # Train models
+    print(f"\n🤖 Training CNN-LSTM on {len(X_train_seq):,} sequences...")
     cnn_lstm = CNNLSTMModel(input_shape=(config.LOOKBACK, X_train_seq.shape[2]))
-    cnn_lstm.fit(X_train_seq, y_train_seq, epochs=config.EPOCHS, verbose=1)  # Use config epochs
+    cnn_lstm.fit(X_train_seq, y_train_seq, epochs=min(config.EPOCHS, 20), verbose=1)  # Limit epochs for testing
     
     print(f"🌲 Training Random Forest ({config.RF_N_ESTIMATORS} trees, depth {config.RF_MAX_DEPTH}) on {len(X_train_flat):,} samples...")
     rf = RandomForestModel()
     rf.fit(X_train_flat, y_train_flat)
+    
+    print_memory_usage()
     
     # Generate predictions
     print("\n🔮 Generating predictions...")
@@ -230,7 +331,7 @@ def run_aggressive_backtest():
     print(f"📊 CNN-LSTM Accuracy: {cnn_lstm_accuracy:.1%}")
     print(f"📊 Random Forest Accuracy: {rf_accuracy:.1%}")
     
-    # Generate trading signals with new aggressive thresholds
+    # Generate trading signals
     print(f"\n📈 Generating trading signals...")
     
     # CNN-LSTM signals
@@ -239,8 +340,8 @@ def run_aggressive_backtest():
     p_up = cnn_lstm_proba[:, 2]    # Profit probability
     
     cnn_lstm_signals = np.zeros(len(X_test_seq))
-    cnn_lstm_signals[p_up > config.P_THRESH_LONG] = 1   # Long (43% threshold)
-    cnn_lstm_signals[p_down > config.P_THRESH_SHORT] = -1 # Short (47% threshold)
+    cnn_lstm_signals[p_up > config.P_THRESH_LONG] = 1   # Long
+    cnn_lstm_signals[p_down > config.P_THRESH_SHORT] = -1 # Short
     
     # Random Forest signals
     rf_classes = rf.model.classes_
@@ -272,7 +373,7 @@ def run_aggressive_backtest():
                 # Apply direction
                 trade_return = signal * base_return
                 
-                # Apply costs (more realistic for aggressive trading)
+                # Apply costs
                 fee_cost = config.FEE_RT_BPS / 10000  # Round-turn fees
                 slippage_cost = config.SLIPPAGE_BPS / 10000 * 2  # Both sides
                 
@@ -301,8 +402,8 @@ def run_aggressive_backtest():
         print(f"\n📊 {metrics['strategy_name']} Strategy:")
         print(f"  🎯 Accuracy: {metrics['strategy_name'] == 'CNN-LSTM' and cnn_lstm_accuracy or rf_accuracy:.1%}")
         print(f"  📈 Trade Frequency: {metrics['trade_frequency']:.1%}")
-        print(f"  📊 Long Positions: {metrics['long_positions']:,} ({metrics['long_positions']/metrics['trading_periods']:.1%})")
-        print(f"  📊 Short Positions: {metrics['short_positions']:,} ({metrics['short_positions']/metrics['trading_periods']:.1%})")
+        print(f"  📊 Long Positions: {metrics['long_positions']:,} ({metrics['long_positions']/max(metrics['trading_periods'], 1):.1%})")
+        print(f"  📊 Short Positions: {metrics['short_positions']:,} ({metrics['short_positions']/max(metrics['trading_periods'], 1):.1%})")
         print(f"  💰 Cumulative Return: {metrics['cumulative_return']:.2%}")
         print(f"  📊 Annual Return: {metrics['annual_return']:.2%}")
         print(f"  ⚡ Sharpe Ratio: {metrics['sharpe_ratio']:.2f}")
@@ -322,6 +423,7 @@ def run_aggressive_backtest():
     print(f"🎯 Lower thresholds = Much more trading activity!")
     print(f"📊 50bp profit target = More achievable targets")
     print(f"🔧 {X_aligned.shape[1]} features = Maximum complexity")
+    print_memory_usage()
     
     if cnn_lstm_metrics['cumulative_return'] > 0:
         print(f"🏆 CNN-LSTM: PROFITABLE with {cnn_lstm_metrics['cumulative_return']:.2%} return!")

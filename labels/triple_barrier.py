@@ -53,7 +53,7 @@ def create_triple_barrier_labels(df: pd.DataFrame,
                                 stop_target: float = None,
                                 timeout_bars: int = None) -> pd.DataFrame:
     """
-    Create triple barrier labels for the dataset
+    Create triple barrier labels for the dataset (Optimized for large datasets)
     
     Parameters:
     -----------
@@ -92,9 +92,12 @@ def create_triple_barrier_labels(df: pd.DataFrame,
     print(f"Profit target: {profit_target:.4f}, Stop target: {stop_target:.4f}, Timeout: {timeout_bars}")
     
     # Process each bar (except last few where we can't complete the barrier)
-    for i in range(n_bars - timeout_bars):
-        if i % 10000 == 0:
-            print(f"Processing bar {i:,}/{n_bars-timeout_bars:,}")
+    valid_bars = n_bars - timeout_bars
+    print_interval = max(10000, valid_bars // 20)  # Print at most 20 times
+    
+    for i in range(valid_bars):
+        if i % print_interval == 0:
+            print(f"Processing bar {i:,}/{valid_bars:,} ({i/valid_bars*100:.1f}%)")
         
         hit_type, hit_idx = find_barrier_hit(prices, i, profit_target, stop_target, timeout_bars)
         
