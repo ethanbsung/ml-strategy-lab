@@ -227,7 +227,14 @@ class CNNLSTMModel:
             self.model = self.build_model()
         
         # Preprocess training data
-        X_train_scaled, y_train_encoded = self.preprocess_data(X_train, y_train, is_training=True)
+        X_train_scaled, y_train_encoded = self.preprocess_data(
+            X_train, y_train, is_training=True)
+
+        # Compute class weights to handle any label imbalance
+        y_train_shifted = y_train + 1
+        class_weights = keras.utils.class_weight.compute_class_weight(
+            "balanced", classes=np.arange(self.num_classes), y=y_train_shifted)
+        class_weight_dict = {i: w for i, w in enumerate(class_weights)}
         
         # Preprocess validation data if provided
         validation_data = None
@@ -252,12 +259,14 @@ class CNNLSTMModel:
         
         # Train model
         history = self.model.fit(
-            X_train_scaled, y_train_encoded,
+            X_train_scaled,
+            y_train_encoded,
             epochs=epochs,
             batch_size=batch_size,
             validation_data=validation_data,
             callbacks=callbacks,
-            verbose=verbose
+            verbose=verbose,
+            class_weight=class_weight_dict,
         )
         
         self.is_fitted = True

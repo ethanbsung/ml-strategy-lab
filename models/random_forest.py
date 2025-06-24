@@ -147,12 +147,15 @@ class RandomForestModel:
         # Train model
         self.model.fit(X_train_scaled, y_train)
         self.is_fitted = True
-        
+
         # Calculate training metrics
         train_accuracy = self.model.score(X_train_scaled, y_train)
+        oob_score = getattr(self.model, "oob_score_", None)
         
         if verbose > 0:
             print(f"Training accuracy: {train_accuracy:.4f}")
+            if oob_score is not None:
+                print(f"OOB score: {oob_score:.4f}")
         
         # Evaluate on validation set if provided
         val_accuracy = None
@@ -161,7 +164,8 @@ class RandomForestModel:
         
         return {
             'train_accuracy': train_accuracy,
-            'val_accuracy': val_accuracy
+            'val_accuracy': val_accuracy,
+            'oob_score': oob_score,
         }
     
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
